@@ -1,0 +1,7 @@
+spring:
+  application:
+    name: Scylla-POC
+
+logging:
+  level:
+    root: info
