@@ -9,9 +9,9 @@ import static com.datastax.oss.driver.api.querybuilder.SchemaBuilder.createKeysp
 import static com.datastax.oss.driver.api.querybuilder.SchemaBuilder.createTable;
 
 import com.codeistari.scyllapoc.entity.MonkeySpecies;
+import com.datastax.dse.driver.api.core.cql.reactive.ReactiveResultSet;
 import com.datastax.oss.driver.api.core.CqlSession;
 import com.datastax.oss.driver.api.core.cql.ResultSet;
-import com.datastax.oss.driver.api.core.cql.Row;
 import com.datastax.oss.driver.api.core.cql.SimpleStatement;
 import com.datastax.oss.driver.api.core.type.DataTypes;
 import com.datastax.oss.driver.api.querybuilder.delete.Delete;
@@ -20,16 +20,16 @@ import com.datastax.oss.driver.api.querybuilder.schema.CreateKeyspaceStart;
 import com.datastax.oss.driver.api.querybuilder.schema.CreateTableStart;
 import com.datastax.oss.driver.api.querybuilder.select.Select;
 import com.datastax.oss.driver.api.querybuilder.update.Update;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Repository;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 @Repository
 @Slf4j
-public class MonkeySpeciesRepository {
+public class MonkeySpeciesReactiveRepository {
 
   private final CqlSession cqlSession;
 
@@ -37,7 +37,7 @@ public class MonkeySpeciesRepository {
 
   private final String table;
 
-  public MonkeySpeciesRepository(@Qualifier("scyllaSession") CqlSession cqlSession) {
+  public MonkeySpeciesReactiveRepository(@Qualifier("scyllaSession") CqlSession cqlSession) {
     this.cqlSession = cqlSession;
     this.keyspace = "mykeyspace";
     this.table = "monkeySpecies";
@@ -63,7 +63,7 @@ public class MonkeySpeciesRepository {
       log.info("Table created: {}", rs.wasApplied());
   }
 
-  public boolean createSpecies(MonkeySpecies monkeySpecies) {
+  public Mono<Boolean> createSpecies(MonkeySpecies monkeySpecies) {
     InsertInto insert = insertInto(keyspace, table);
     SimpleStatement statement = insert
         .value("species", literal(monkeySpecies.getSpecies()))
@@ -71,44 +71,43 @@ public class MonkeySpeciesRepository {
         .value("population", literal(monkeySpecies.getPopulation()))
         .value("average_size", literal(monkeySpecies.getAverageSize()))
         .build();
-    ResultSet rs = cqlSession.execute(statement);
-    return null == rs.getExecutionInfo().getErrors() || rs.getExecutionInfo().getErrors().isEmpty();
+    ReactiveResultSet rs = cqlSession.executeReactive(statement);
+    return Mono.from(rs)
+        .map(r -> r.getExecutionInfo().getErrors() == null || r.getExecutionInfo().getErrors().isEmpty());
   }
 
-  public List<MonkeySpecies> getAll() {
-    List<MonkeySpecies> species = new ArrayList<>();
+  public Mono<List<MonkeySpecies>> getAll() {
 
     String query = String.format("select * from %s.%s", keyspace, table);
-    ResultSet rs = cqlSession.execute(query);
-    for (Row r : rs.all())
-      species.add(MonkeySpecies.builder()
-          .species(r.getString("species"))
-          .commonName(r.getString("common_name"))
-          .population(r.getLong("population"))
-          .averageSize(r.getInt("average_size"))
-          .build());
-    return species;
+    ReactiveResultSet rs = cqlSession.executeReactive(query);
+    return Flux.from(rs)
+        .map(r -> MonkeySpecies.builder()
+            .species(r.getString("species"))
+            .commonName(r.getString("common_name"))
+            .population(r.getLong("population"))
+            .averageSize(r.getInt("average_size"))
+            .build())
+        .collectList();
   }
 
-  public MonkeySpecies getSpecies(String species) {
+  public Mono<MonkeySpecies> getSpecies(String species) {
 
     Select query = selectFrom(keyspace, table).all()
         .whereColumn("species")
         .isEqualTo(literal(species))
         .allowFiltering();
     SimpleStatement statement = query.build();
-    ResultSet rs = cqlSession.execute(statement);
-    Row r = rs.one();
-    Objects.requireNonNull(r);
-    return MonkeySpecies.builder()
-        .species(r.getString("species"))
-        .commonName(r.getString("common_name"))
-        .population(r.getLong("population"))
-        .averageSize(r.getInt("average_size"))
-        .build();
+    ReactiveResultSet rs = cqlSession.executeReactive(statement);
+    return Mono.from(rs)
+        .map(r -> MonkeySpecies.builder()
+            .species(r.getString("species"))
+            .commonName(r.getString("common_name"))
+            .population(r.getLong("population"))
+            .averageSize(r.getInt("average_size"))
+            .build());
   }
 
-  public boolean updateSpecies(MonkeySpecies monkeySpecies) {
+  public Mono<Boolean> updateSpecies(MonkeySpecies monkeySpecies) {
     Update query = update(keyspace, table)
         .setColumn("common_name", literal(monkeySpecies.getCommonName()))
         .setColumn("population", literal(monkeySpecies.getPopulation()))
@@ -116,16 +115,18 @@ public class MonkeySpeciesRepository {
         .whereColumn("species")
         .isEqualTo(literal(monkeySpecies.getSpecies()));
     SimpleStatement statement = query.build();
-    ResultSet rs = cqlSession.execute(statement);
-    return null == rs.getExecutionInfo().getErrors() || rs.getExecutionInfo().getErrors().isEmpty();
+    ReactiveResultSet rs = cqlSession.executeReactive(statement);
+    return Mono.from(rs)
+        .map(r -> r.getExecutionInfo().getErrors() == null || r.getExecutionInfo().getErrors().isEmpty());
   }
 
-  public boolean deleteSpecies(String species) {
+  public Mono<Boolean> deleteSpecies(String species) {
     Delete query = deleteFrom(keyspace, table)
         .whereColumn("species")
         .isEqualTo(literal(species));
     SimpleStatement statement = query.build();
-    ResultSet rs = cqlSession.execute(statement);
-    return null == rs.getExecutionInfo().getErrors() || rs.getExecutionInfo().getErrors().isEmpty();
+    ReactiveResultSet rs = cqlSession.executeReactive(statement);
+    return Mono.from(rs)
+        .map(r -> r.getExecutionInfo().getErrors() == null || r.getExecutionInfo().getErrors().isEmpty());
   }
 }
